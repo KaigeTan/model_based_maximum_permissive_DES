@@ -1,0 +1,4 @@
+# Ignore all folders starting with '202', ignore the generated checkpoints
+202*/
+# Ignore Python cache directory
+__pycache__/
