@@ -372,11 +372,11 @@ class DeepQNetwork():
                 pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
                 pattern_index = np.argmax(pattern_value)
 
-                [S_, all_S_, _, isDone_test, _, _, _] = Train_StepFun(S, pattern_index, param)
+                [S_, all_S_, _, isDone_test, _, _, _, _] = Train_StepFun(S, pattern_index, param)
                 if isDone_test == 1:
                     Problem_state.append(S_full)
                 for all_s_ in all_S_: # iterate all next generated states  
-                    # TODO: we only care about elements which characterize the train states, the -2 and -3 element are discarded
+                    # we only care about elements which characterize the train states, the -2 and -3 element are discarded
                     sub_s_ = all_s_[0:-3] + [all_s_[-1]]
                     # if the newly generated state never appears before (only check the sublist, without -2 and -3 element)
                     if not any(sub_s_ == sub_s[0:-3] + [sub_s[-1]] for sub_s in reach_states):
@@ -398,6 +398,70 @@ class DeepQNetwork():
                 print("**************************************")
             
         return generated_states_full, Problem_state
+    
+    def check_previous_state(self, file_path, plant_param, prob_state_set):
+        tf.reset_default_graph()
+        S = 15*[0]
+        S_norm = Train_norm_state(S)
+        Problem_state = []
+        reach_states = []
+        generated_states = []
+        # reach_states_full is a 2x list, the first element is the state, the second is the state
+        # from last step, which is stored in generated_states
+        reach_states_full = []
+        matching_state = []
+        
+        reach_states.append(S)
+        S_full = [S, S, -1]
+        reach_states_full.append(S_full)
+        
+        meta_path = file_path + '.meta'
+        saver_test = tf.train.import_meta_graph(meta_path)
+        saver_test.restore(self.sess, file_path)
+        while(len(reach_states) != 0):
+            # iterate to the next state to test
+            S = reach_states[0]
+            S_full = reach_states_full[0]
+            # if S not in generated_states: # if S not tested
+            # if S not tested, but only care about the sub list, train_out number not considered
+            sub_S = S[0:-3] + [S[-1]] # remove train_out number
+            if not any(sub_S == sub_s[0:-3] + [sub_s[-1]] for sub_s in generated_states):
+                S_norm = Train_norm_state(S)
+                S_norm = np.array(S_norm)
+                S_norm = S_norm[np.newaxis, :] # if error, try add np.array(S)
+                pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+                pattern_index = np.argmax(pattern_value)
+
+                [S_, all_S_, _, isDone_test, _, _, _, _] = Train_StepFun(S, pattern_index, plant_param)
+                if isDone_test == 1:
+                    Problem_state.append(S_full)
+                # if tranversed s_ appears in prob_state_set, add it 
+                for s_ in all_S_:
+                    if s_ in prob_state_set:
+                        matching_state.append([s_, pattern_index, S_full])
+                    
+                for all_s_ in all_S_: # iterate all next generated states  
+                    # we only care about elements which characterize the train states, the -2 and -3 element are discarded
+                    sub_s_ = all_s_[0:-3] + [all_s_[-1]]
+                    # if the newly generated state never appears before (only check the sublist, without -2 and -3 element)
+                    if not any(sub_s_ == sub_s[0:-3] + [sub_s[-1]] for sub_s in reach_states):
+                        reach_states.append(all_s_)
+                        reach_states_full.append([all_s_, S, pattern_index])
+                    # else:
+                    #     print('redundant ones!')
+                        
+                generated_states.append(S)  #collect the verified traversed states
+            # remove S since it is traversed
+            reach_states.remove(reach_states[0])
+            reach_states_full.remove(reach_states_full[0])
+            
+            if len(generated_states)%100 == 0:
+                print("generated_states:", len(generated_states))
+                print("reach_states:", len(reach_states))
+                print("problem_state:", len(Problem_state))
+                print("**************************************")
+            
+        return matching_state, Problem_state
     
     
     def check_Pro_states(self, S,check_pt_path):

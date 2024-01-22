@@ -17,10 +17,12 @@ NUM_ACTION = 17
 NUM_OBS = 15
 MEMORY_SIZE = np.exp2(13).astype(int)
 BATCH_SIZE = np.exp2(11).astype(int)
-NUM_EPISODE = 80000
+NUM_EPISODE = 120000
 # INIT_OBS = 14*[0] # 0~13, 14 states, last 2 states are binary
 INIT_obs = Train_init_state()
-MAX_EPI_STEP = 200
+MAX_EPI_STEP = 1000
+RETRAIN = 0
+RECORD_VAL = 1000
 
 # build network
 tf.compat.v1.reset_default_graph()
@@ -32,16 +34,12 @@ RL = DeepQNetwork(NUM_ACTION,
                   replace_target_iteration = 100,
                   memory_size = MEMORY_SIZE,
                   batch_size = BATCH_SIZE,
-                  epsilon_increment = 1e-5,
+                  epsilon_increment = 0.8e-5,
                   epsilon_init = 0.10,
                   output_graph = False,
                   max_num_nextS = 7,
                   l1_node = 256)
-
 saver = tf.compat.v1.train.Saver(max_to_keep=None)
-cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\Train'
-if not os.path.exists(cwd):
-    os.makedirs(cwd)
 
 total_step = 1
 reward_history = []
@@ -50,11 +48,26 @@ episode_step_history = [0]
 max_reward_his = -50
 
 
+# %% model training
 Train = 1
 if Train:
+    if RETRAIN:
+        # restore the ckpt file, the pretrained model is the initial point
+        file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt
+        meta_path = file_path + '.meta'
+        tf.reset_default_graph()
+        saver = tf.train.import_meta_graph(meta_path)
+        saver.restore(RL.sess, file_path)
+        
+    # ckpt save dir.
+    cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\Train'
+    if not os.path.exists(cwd):
+        os.makedirs(cwd)
+    
     for num_episode in range(NUM_EPISODE):
         # in each episode, reset initial state and total reward
-        S = INIT_obs[random.randint(0, len(INIT_obs)-1)]
+        ind_temp = random.randint(0, len(INIT_obs)-1)
+        S = INIT_obs[ind_temp]
         init_S = S
         S_norm = Train_norm_state(S)
         episode_reward = 0
@@ -67,7 +80,7 @@ if Train:
             # initialize the Action
             A = RL.choose_action_Train(S_norm, 1)
             # take action and observe
-            [S_, all_S_, R, isDone, IfAppearGoodEvent, stop_ind, selected_action] = \
+            [S_, all_S_, R, isDone, IfAppearGoodEvent, stop_ind, selected_action, reached_state_len] = \
                 Train_StepFun(S, A, plant_param)
             # normalize the actual next state
             S_norm_ = Train_norm_state(S_)
@@ -77,7 +90,7 @@ if Train:
             # store transition
             RL.store_exp(S_norm, A, R, all_S_norm_)
             # control the learning starting time and frequency
-            if total_step > MEMORY_SIZE and (total_step % 25 == 0):
+            if total_step > MEMORY_SIZE and (total_step % 50 == 0):
                 RL.learn()
             # update states
             episode_reward += R
@@ -105,17 +118,18 @@ if Train:
                       'epsilon value:', RL.epsilon, '\n',
                       #'action list:', epi_action_list, '\n',
                       'maximal running step:', np.max(episode_step_history), '\n',
-                      'total good event:', np.sum(good_event_history), '\n',
+                      # 'total good event:', np.sum(good_event_history), '\n',
                       'maximal episode reward:', max_reward_his, '\n',
-                      stop_reason, '\n',
+                      # stop_reason, '\n',
+                      'total state explored:', reached_state_len, '\n',
                       '*******************************************')
                 reward_history.append(episode_reward)
                 good_event_history.append(epi_good_event)
                 episode_step_history.append(episode_step)
                 
                 # save checkpoint model, if a good model is received
-                if episode_reward > 600:
-                    save_path = cwd +'\\' + str(num_episode) + '_reward' + str(episode_reward) + 'step' + str(episode_step) + '.ckpt'
+                if episode_reward > RECORD_VAL:
+                    save_path = cwd +'\\' + str(num_episode) + '_reward' + str(np.round(episode_reward)) + 'init_state_' + str(ind_temp) + '.ckpt'
                     saver.save(RL.sess, save_path)
                 break
             total_step += 1
@@ -129,23 +143,41 @@ if Train:
     sio.savemat(save_path_reward_mat, mdict={'reward':reward_history})
 else:
     # %% for single checkpoint test
+    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2024-01-12\\Train\\119771_reward2065.0init_state_0.ckpt" # fill in the target ckpt
     file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt
     tf.reset_default_graph()    
-    S = 15*[0]
-    [generated_states_full, Problem_state] = RL.check_action_Train(S, file_path, plant_param)
+    # [generated_states_full, Problem_state] = RL.check_action_Train(15*[0], file_path, plant_param)
+    # 0115: check the previous actions
+    prob_state_set = [[0, 3, 0, 0, 12, 2, 0, 0, 3, 0, 0, 0, 0, 0, 5],
+                      [0, 3, 0, 0, 4, 3, 0, 0, 2, 0, 0, 0, 0, 0, 5],
+                      [0, 0, 0, 4, 0, 0, 4, 8, 0, 0, 0, 1, 0, 0, 5],
+                      [0, 0, 0, 4, 0, 0, 4, 7, 0, 1, 0, 1, 0, 0, 5],
+                      [0, 0, 4, 0, 5, 8, 0, 0, 2, 0, 0, 0, 0, 0, 5],
+                      [0, 0, 0, 3, 0, 0, 4, 3, 0, 0, 0, 2, 0, 0, 5],
+                      [0, 0, 0, 4, 0, 6, 4, 0, 0, 1, 0, 1, 0, 0, 5],
+                      [0, 0, 3, 0, 0, 8, 2, 0, 2, 0, 1, 0, 0, 0, 5],
+                      [0, 0, 0, 0, 4, 0, 0, 8, 0, 0, 0, 2, 0, 0, 5], # 17
+                      [0, 0, 0, 0, 0, 8, 0, 8, 2, 0, 0, 0, 0, 0, 5], # 11
+                      [0, 0, 0, 0, 0, 6, 6, 8, 0, 0, 0, 2, 0, 0, 5], # 5
+                      [0, 0, 0, 0, 0, 0, 5, 8, 0, 0, 0, 2, 0, 0, 5], # 17
+                      [0, 0, 0, 4, 0, 0, 4, 7, 3, 0, 0, 1, 0, 0, 5]] # 12
+    [matching_state, Problem_state] = RL.check_previous_state(file_path, plant_param, prob_state_set)
     
+    
+    
+        
     # %% for training folder testing
-    check_pt_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt folder
-    for check_pt_file in os.listdir(check_pt_path):
-        if check_pt_file.endswith('.index'):
-            # get the check point file full path
-            file_path = os.path.join(check_pt_path, check_pt_file[:-6])
-            tf.reset_default_graph()    
-            S = [0, 0, 0, 0, 0, 0, 0]
+    # check_pt_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt folder
+    # for check_pt_file in os.listdir(check_pt_path):
+    #     if check_pt_file.endswith('.index'):
+    #         # get the check point file full path
+    #         file_path = os.path.join(check_pt_path, check_pt_file[:-6])
+    #         tf.reset_default_graph()    
+    #         S = [0, 0, 0, 0, 0, 0, 0]
             
-            [generated_states_full, Problem_state] = RL.check_action(S, file_path, plant_param, 'Train')
-            if len(Problem_state) == 0:
-                print('No blocking states!\n')
+    #         [generated_states_full, Problem_state] = RL.check_action(S, file_path, plant_param, 'Train')
+    #         if len(Problem_state) == 0:
+    #             print('No blocking states!\n')
             
             
             

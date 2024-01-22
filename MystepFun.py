@@ -1,13 +1,13 @@
 import numpy as np
 from random import choice
 from util import AGV_Next, AGV_Permit
-from util_Train import Train_Next, Train_Permit
+from util_Train import Train_Next, Train_Permit, StateManager
 
 # %% step function for AGV case study
 def AGV_StepFun(obs, pattern_index, param):
         # Determine the available event set at the current state
         [pattern, Enable_P] = AGV_Permit(obs, param)        
-                    
+        
         if not len(np.intersect1d(pattern, param.E_c)) == 0:
             if not pattern_index == 10:  # No event is disabled if action==10
                 pattern = np.setdiff1d(pattern, param.E_c[pattern_index])
@@ -30,7 +30,7 @@ def AGV_StepFun(obs, pattern_index, param):
                 all_S_.append(S_temp_)
                 [Enable_next_state, M] = AGV_Permit(S_temp_, param)
                 all_Enb_.append(Enable_next_state)
-            if any(len(vec) == 0 for vec in all_Enb_):          # TODO: If any event in the selected pattern leads to a deadlock, 
+            if any(len(vec) == 0 for vec in all_Enb_): # If any event in the selected pattern leads to a deadlock
                 Enable_P_S_ = []                                   # an episode is terminated
                 obs_ = obs
                 stop_ind = 2
@@ -71,6 +71,7 @@ def AGV_StepFun(obs, pattern_index, param):
     
 # %% step function for Train case study
 def Train_StepFun(obs, pattern_index, param):
+    state_set = StateManager()
     # Determine the available event set at the current state
     [pattern, Enable_P] = Train_Permit(obs, param)
     # # only select pattern from 0 - 16
@@ -92,6 +93,7 @@ def Train_StepFun(obs, pattern_index, param):
     reward = 0
     stop_ind = 0
     all_S_ = []
+    all_Enb_ = []
     
     if len(pattern) != 0:                                          
         action = choice(pattern) - 1        # random selection of action, the value of action: from E_c and E_u
@@ -102,8 +104,11 @@ def Train_StepFun(obs, pattern_index, param):
             act_idx = act_idx - 1        # pattern follows MATLAB naming, from 1; act_idx calls python array, from 0
             S_temp_ = Train_Next(obs, act_idx, param)
             all_S_.append(S_temp_)
+            [Enable_next_state, M] = Train_Permit(S_temp_, param)
+            all_Enb_.append(Enable_next_state)
+            
         # if [] in all_S_:
-        if any(len(vec) == 0 for vec in all_S_):
+        if any(len(vec) == 0 for vec in all_Enb_):
             Enable_P_S_ = []
             stop_ind = 2
             action = -1
@@ -113,14 +118,22 @@ def Train_StepFun(obs, pattern_index, param):
         obs_ = obs
         stop_ind = 1
         action = -1
+    
     # if no possible actions in the next state/intersection is empty set, terminate the episode
-    if len(Enable_P_S_) == 0:
+    prob_state_set = np.loadtxt('train_prob_state_set.txt', dtype=int).tolist()
+    
+    
+    def compare_prob_state(vec1, vec2):
+        return vec1[:-3] + [vec1[-1]] == vec2[:-3] + [vec2[-1]] # exclude the last 3nd and last 2nd elements, since they represent the finishing number of trains
+    prob_flag = any(compare_prob_state(test_vec1, test_vec2) for test_vec1 in prob_state_set for test_vec2 in all_S_) # check if any all_S_ appear iin prob_state_set
+    
+    if len(Enable_P_S_) == 0: # or prob_flag == 1: # if selected action leads to a potential S_ causing deadlock, or the iterated next states has prob_state
          isDone = 1
          reward = -30
     else:
         X13 = obs[-3]
         X14 = obs[-2]
-        ratio_inf = 1.5
+        ratio_inf = 1.0
         # here we calculate the average value of all possible actions
         for i_action in pattern:
             i_reward = 0
@@ -165,11 +178,16 @@ def Train_StepFun(obs, pattern_index, param):
             
             reward += i_reward
         reward /= len(pattern)
-        
+    
+    # check if obs_ is explored before
+    if_new_state = state_set.check_and_add_state(obs_) # if obs_ not appears before, if_new_state == 1, o.w. 0
+    # for the exploration desire, add reward to the unexplored state
+    reward += if_new_state
+    
     IfAppearGoodEvent = 1 if action in [15, 41] else 0
-    if len(all_S_) >= 7:
-        print('')
-    return obs_, all_S_, reward, isDone, IfAppearGoodEvent, stop_ind, action
+    # if len(all_S_) >= 7:
+    #     print('') # seems like 7 is a viable number for this case, no |S_| will exceed 7
+    return obs_, all_S_, reward, isDone, IfAppearGoodEvent, stop_ind, action, len(state_set.reached_state_set)
     
     
     

@@ -15,12 +15,9 @@ def Train_norm_state(S):
 
 # %% define the set of initial states for Train case study
 def Train_init_state():
-    set_S0 = [15*[0]]
-    # set_S0 = [[0, 0, 0, 0, 12, 0, 0, 8, 3, 0, 0, 3, 0, 0],
-    #           [0, 0, 2, 0, 12, 0, 0, 8, 3, 0, 0, 1, 0, 0],
-    #           [0, 4, 0, 0, 12, 0, 0, 8, 1, 0, 0, 2, 0, 0],
-    #           [0, 0, 0, 3, 12, 0, 0, 3, 3, 0, 0, 2, 0, 0],
-    #           [1, 0, 0, 0,  9, 0, 0, 8, 3, 0, 0, 2, 0, 0]]
+    # set_S0 = [15*[0]]
+    set_S0 = [15*[0],
+              [0, 0, 0, 0, 0, 4, 4, 0, 0, 1, 0, 0, 0, 0, 5]] # ok
     
     return set_S0
 
@@ -134,3 +131,25 @@ def Train_Permit(obs, param):
     
     return(Enable_P_S, Enable_P)
 
+# %% check the state of the train case study, reached_state_set records the full set of the reached states
+# we only care about elements which characterize the train states, the -2 and -3 element are discarded
+class StateManager:
+    _instance = None  # Class-level variable to store the instance
+    # make sure that only one instance is created, o.w. in MystepFun.py will be initialized repeatedly
+    def __new__(cls):
+        if not cls._instance:
+            cls._instance = super(StateManager, cls).__new__(cls)
+            cls._instance.reached_state_set = set()
+        return cls._instance
+    
+
+    def check_and_add_state(self, obs):
+        # if the newly generated state never appears before (only check the sublist, without -2 and -3 element)
+        sub_obs = tuple(obs[0:-3] + [obs[-1]])
+        if sub_obs not in self.reached_state_set:
+            self.reached_state_set.add(sub_obs)
+            return 1 # return 1 implies a new state is explored, add it to the reward
+        else:
+            return 0 # o.w. not change reward
+            
+            
