@@ -2,6 +2,7 @@ import numpy as np
 from random import choice
 from util import AGV_Next, AGV_Permit
 from util_Train import Train_Next, Train_Permit, StateManager
+import os
 
 # %% step function for AGV case study
 def AGV_StepFun(obs, pattern_index, param):
@@ -120,7 +121,8 @@ def Train_StepFun(obs, pattern_index, param):
         action = -1
     
     # if no possible actions in the next state/intersection is empty set, terminate the episode
-    prob_state_set = np.loadtxt('train_prob_state_set.txt', dtype=int).tolist()
+    prob_state_set_file = os.getcwd() + '\\data\\Train\\train_prob_state_set.txt'
+    prob_state_set = np.loadtxt(prob_state_set_file, dtype=int).tolist()
     
     
     def compare_prob_state(vec1, vec2):
