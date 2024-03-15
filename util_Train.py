@@ -11,7 +11,9 @@ def Train_norm_state(S):
     max_state = np.array([16, 16, 16, 16, 16, 9, 9, 9, 4, 2, 2, 4, 1, 1, 1])       # maximal number of train model state
     S_norm_arr = np.array(S)/max_state
     S_norm = S_norm_arr.tolist()
-    return S_norm
+    S_norm_arr = np.array(S_norm)
+    S_norm_arr = S_norm_arr[np.newaxis, :]
+    return S_norm, S_norm_arr
 
 # %% define the set of initial states for Train case study
 def Train_init_state():

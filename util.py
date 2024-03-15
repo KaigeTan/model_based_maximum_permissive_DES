@@ -12,7 +12,9 @@ def AGV_norm_state(S):
     max_state = np.array([3, 7, 3, 5, 3, 1, 255])
     S_norm_arr = np.array(S)/max_state
     S_norm = S_norm_arr.tolist()
-    return S_norm
+    S_norm_arr = np.array(S_norm)
+    S_norm_arr = S_norm_arr[np.newaxis, :]
+    return S_norm, S_norm_arr
 
 # %% check AGV next states
 def AGV_Next(State, action, param):

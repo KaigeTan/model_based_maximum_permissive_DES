@@ -23,6 +23,11 @@ INIT_obs = Train_init_state()
 MAX_EPI_STEP = 1000
 RETRAIN = 0
 RECORD_VAL = 1000
+STEP = 3
+RO_NODES = 4
+RO_TRACES = 100
+RO_DEPTH = 4
+random.seed(50)
 
 # build network
 tf.compat.v1.reset_default_graph()
@@ -38,7 +43,11 @@ RL = DeepQNetwork(NUM_ACTION,
                   epsilon_init = 0.10,
                   output_graph = False,
                   max_num_nextS = 7,
-                  l1_node = 256)
+                  l1_node = 256,
+                  look_ahead_step = STEP,
+                  RO_nodes = RO_NODES,
+                  RO_traces = RO_TRACES,
+                  RO_depth = RO_DEPTH)
 saver = tf.compat.v1.train.Saver(max_to_keep=None)
 
 total_step = 1
@@ -49,8 +58,8 @@ max_reward_his = -50
 
 
 # %% model training
-Train = 1
-if Train:
+IfTrain = 0
+if IfTrain:
     if RETRAIN:
         # restore the ckpt file, the pretrained model is the initial point
         file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt
@@ -69,7 +78,7 @@ if Train:
         ind_temp = random.randint(0, len(INIT_obs)-1)
         S = INIT_obs[ind_temp]
         init_S = S
-        S_norm = Train_norm_state(S)
+        S_norm, _ = Train_norm_state(S)
         episode_reward = 0
         episode_step = 0
         epi_good_event = 0
@@ -78,14 +87,14 @@ if Train:
         #     RL.learning_rate -= 1.25e-8
         while True:
             # initialize the Action
-            A = RL.choose_action_Train(S_norm, 1)
+            A = RL.choose_action_Train(S, plant_param, 1)
             # take action and observe
             [S_, all_S_, R, isDone, IfAppearGoodEvent, stop_ind, selected_action, reached_state_len] = \
-                Train_StepFun(S, A, plant_param)
+                Train_StepFun(S, A, plant_param, IfTrain)
             # normalize the actual next state
-            S_norm_ = Train_norm_state(S_)
+            S_norm_, _ = Train_norm_state(S_)
             # normalize the all next states set
-            all_S_norm_ = Train_norm_state(all_S_)
+            all_S_norm_, _ = Train_norm_state(all_S_)
             
             # store transition
             RL.store_exp(S_norm, A, R, all_S_norm_)
@@ -146,38 +155,13 @@ else:
     # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2024-01-12\\Train\\119771_reward2065.0init_state_0.ckpt" # fill in the target ckpt
     file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt
     tf.reset_default_graph()    
-    # [generated_states_full, Problem_state] = RL.check_action_Train(15*[0], file_path, plant_param)
+    [generated_states_full, Problem_state, len_gen_states] = RL.check_action_Train(15*[0], file_path, plant_param)
     # 0115: check the previous actions
-    prob_state_set = [[0, 3, 0, 0, 12, 2, 0, 0, 3, 0, 0, 0, 0, 0, 5],
-                      [0, 3, 0, 0, 4, 3, 0, 0, 2, 0, 0, 0, 0, 0, 5],
-                      [0, 0, 0, 4, 0, 0, 4, 8, 0, 0, 0, 1, 0, 0, 5],
-                      [0, 0, 0, 4, 0, 0, 4, 7, 0, 1, 0, 1, 0, 0, 5],
-                      [0, 0, 4, 0, 5, 8, 0, 0, 2, 0, 0, 0, 0, 0, 5],
-                      [0, 0, 0, 3, 0, 0, 4, 3, 0, 0, 0, 2, 0, 0, 5],
-                      [0, 0, 0, 4, 0, 6, 4, 0, 0, 1, 0, 1, 0, 0, 5],
-                      [0, 0, 3, 0, 0, 8, 2, 0, 2, 0, 1, 0, 0, 0, 5],
-                      [0, 0, 0, 0, 4, 0, 0, 8, 0, 0, 0, 2, 0, 0, 5], # 17
-                      [0, 0, 0, 0, 0, 8, 0, 8, 2, 0, 0, 0, 0, 0, 5], # 11
-                      [0, 0, 0, 0, 0, 6, 6, 8, 0, 0, 0, 2, 0, 0, 5], # 5
-                      [0, 0, 0, 0, 0, 0, 5, 8, 0, 0, 0, 2, 0, 0, 5], # 17
-                      [0, 0, 0, 4, 0, 0, 4, 7, 3, 0, 0, 1, 0, 0, 5]] # 12
-    [matching_state, Problem_state] = RL.check_previous_state(file_path, plant_param, prob_state_set)
+    # prob_state_set_path = os.getcwd() + '\\data\\Train\\train_prob_state_set.txt'
+    # prob_state_set = np.loadtxt(prob_state_set_path, dtype=int).tolist()
+    # [matching_state, Problem_state] = RL.check_previous_state(file_path, plant_param, prob_state_set)
     
     
-    
-        
-    # %% for training folder testing
-    # check_pt_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\disable_approach\\2023-12-27\\Train\\79964_reward739.3585824436218step201.ckpt" # fill in the target ckpt folder
-    # for check_pt_file in os.listdir(check_pt_path):
-    #     if check_pt_file.endswith('.index'):
-    #         # get the check point file full path
-    #         file_path = os.path.join(check_pt_path, check_pt_file[:-6])
-    #         tf.reset_default_graph()    
-    #         S = [0, 0, 0, 0, 0, 0, 0]
-            
-    #         [generated_states_full, Problem_state] = RL.check_action(S, file_path, plant_param, 'Train')
-    #         if len(Problem_state) == 0:
-    #             print('No blocking states!\n')
-            
+
             
             

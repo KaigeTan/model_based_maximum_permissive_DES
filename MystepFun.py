@@ -3,9 +3,10 @@ from random import choice
 from util import AGV_Next, AGV_Permit
 from util_Train import Train_Next, Train_Permit, StateManager
 import os
+import sys
 
 # %% step function for AGV case study
-def AGV_StepFun(obs, pattern_index, param):
+def AGV_StepFun(obs, pattern_index, param, num_action):
         # Determine the available event set at the current state
         [pattern, Enable_P] = AGV_Permit(obs, param)        
         
@@ -14,7 +15,7 @@ def AGV_StepFun(obs, pattern_index, param):
                 pattern = np.setdiff1d(pattern, param.E_c[pattern_index])
         # iterate to the next state, and calculate the running cost
         isDone = 0
-        reward = 0.1
+        reward = len(pattern)/num_action # 0.1
         IfAppearGoodEvent = 0
         stop_ind = 0
         all_S_ = []
@@ -71,10 +72,16 @@ def AGV_StepFun(obs, pattern_index, param):
     
     
 # %% step function for Train case study
-def Train_StepFun(obs, pattern_index, param):
-    state_set = StateManager()
+def Train_StepFun(obs, pattern_index, param, IfTrain):
+    if IfTrain:
+        state_set = StateManager()
     # Determine the available event set at the current state
-    [pattern, Enable_P] = Train_Permit(obs, param)
+    try:
+        [pattern, Enable_P] = Train_Permit(obs, param)
+    except Exception as e:
+        print('error: ', e)
+        sys.exit("Exiting due to unexpected condition")
+    
     # # only select pattern from 0 - 16
     #the control pattern with the selected pattern index
     if not len(np.intersect1d(pattern, param.E_c)) == 0:
@@ -181,15 +188,19 @@ def Train_StepFun(obs, pattern_index, param):
             reward += i_reward
         reward /= len(pattern)
     
-    # check if obs_ is explored before
-    if_new_state = state_set.check_and_add_state(obs_) # if obs_ not appears before, if_new_state == 1, o.w. 0
-    # for the exploration desire, add reward to the unexplored state
-    reward += if_new_state
+    if IfTrain:
+        # check if obs_ is explored before
+        if_new_state = state_set.check_and_add_state(obs_) # if obs_ not appears before, if_new_state == 1, o.w. 0
+        # for the exploration desire, add reward to the unexplored state
+        reward += if_new_state
+        len_reach_state = len(state_set.reached_state_set)
+    else:
+        len_reach_state = 0
     
     IfAppearGoodEvent = 1 if action in [15, 41] else 0
     # if len(all_S_) >= 7:
     #     print('') # seems like 7 is a viable number for this case, no |S_| will exceed 7
-    return obs_, all_S_, reward, isDone, IfAppearGoodEvent, stop_ind, action, len(state_set.reached_state_set)
+    return obs_, all_S_, reward, isDone, IfAppearGoodEvent, stop_ind, action, len_reach_state
     
     
     
