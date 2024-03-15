@@ -13,6 +13,7 @@ from MystepFun import AGV_StepFun, Train_StepFun
 from util import AGV_norm_state
 from util_Train import Train_norm_state
 import sys
+import random
 
 # %% deep Q network
 class DeepQNetwork():
@@ -34,7 +35,11 @@ class DeepQNetwork():
                  epsilon_increment = False,
                  output_graph = False,
                  max_num_nextS = 26,
-                 l1_node = 128):
+                 l1_node = 128,
+                 look_ahead_step = 3,
+                 RO_nodes = 5,
+                 RO_traces = 50,
+                 RO_depth = 3):
         
         # assign initial values
         self.n_actions = n_actions
@@ -91,7 +96,12 @@ class DeepQNetwork():
         # initialize parameter in session
         self.sess.run(tf.global_variables_initializer())
         self.cost_history = []
-       
+        
+        # two steps look-ahead for the value forcast
+        self.look_ahead_step = look_ahead_step
+        self.RO_nodes = 5
+        self.RO_traces = 50
+        self.RO_depth = 4
         
     # build networks: evaluation network and q_target network
     def _build_network(self):
@@ -229,23 +239,23 @@ class DeepQNetwork():
         return action_index
     
     
-    def choose_action_Train(self, S, IfAssignInit):
-        # add a deminsion for tensorflow parse
-        # o.w. Cannot feed value of shape (3,) for Tensor 'S:0', which has shape '(?, 3)'
-        S_copy = S
-        S = np.array(S)
-        S = S[np.newaxis, :] # if error, try add np.array(S)
+    def choose_action_Train(self, S, param, IfAssignInit):
+        _, S_norm = Train_norm_state(S)
         
         if(np.random.uniform() > self.epsilon):
-            action_index = np.random.randint(0, self.n_actions)
+            pattern_index = np.random.randint(0, self.n_actions)
         else:
-            # evaluate the current q_values of all actions based on state S
-            action_value = self.sess.run(self.q_eval, feed_dict = {self.S: S})
-            action_index = np.argmax(action_value)
+            if self.look_ahead_step == 2:
+                pattern_value, pattern_length = self.Q_value_eval(S, param, "Train")
+                _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
+            else:
+                pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+                pattern_index = np.argmax(pattern_value)
+            
         # if with the initial state, assign the pattern with 30 (with 10 and 44 actions)
-        if IfAssignInit == 1 and S_copy == [0,0,0,0,0,0,0,0,0,0,0,0,0,0]:
-            action_index = 16
-        return action_index
+        if IfAssignInit == 1 and S_norm == [0,0,0,0,0,0,0,0,0,0,0,0,0,0]:
+            pattern_index = 16
+        return pattern_index
     
     
     # calculate the estimated value of the next state-action pair E[Q(s', a')] = max(Q(s', a'))
@@ -280,15 +290,9 @@ class DeepQNetwork():
         self.memory_counter += 1
   
     
-    def check_action(self, S, check_pt_path, param, case_name):
+    def check_action_AGV(self, S, check_pt_path, param):
         tf.reset_default_graph()
-        if case_name == 'AGV':
-            S_norm = AGV_norm_state(S)
-        elif case_name == 'Train':
-            S_norm = Train_norm_state(S)
-        else:
-            print("Error: case_name unexpected, double check the case name!\n")
-            sys.exit("Exiting due to unexpected condition")
+        _, S_norm = AGV_norm_state(S)
         Problem_state = []
         reach_states = []
         generated_states = []
@@ -309,19 +313,11 @@ class DeepQNetwork():
             S = reach_states[0]
             S_full = reach_states_full[0]
             if S not in generated_states: # if S not tested
-                if case_name == 'AGV':
-                    S_norm = AGV_norm_state(S)
-                elif case_name == 'Train':
-                    S_norm = Train_norm_state(S)
-                S_norm = np.array(S_norm)
-                S_norm = S_norm[np.newaxis, :] # if error, try add np.array(S)
+                _, S_norm = AGV_norm_state(S)
                 pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
                 pattern_index = np.argmax(pattern_value)
                 
-                if case_name == 'AGV':
-                    [S_, all_S_, _, isDone_test, _, _, _] = AGV_StepFun(S, pattern_index, param)
-                elif case_name == 'Train':
-                    [S_, all_S_, _, isDone_test, _, _, _] = Train_StepFun(S, pattern_index, param)
+                [S_, all_S_, _, isDone_test, _, _, _] = AGV_StepFun(S, pattern_index, param, self.n_actions)
                 
                 if isDone_test == 1:
                     Problem_state.append(S_full)
@@ -337,12 +333,17 @@ class DeepQNetwork():
             reach_states.remove(reach_states[0])
             reach_states_full.remove(reach_states_full[0])
             
+            if len(generated_states)%100 == 0:
+                print("verified states:", len(generated_states))
+                print("to-test states:", len(reach_states))
+                print("problem states:", len(Problem_state))
+                print("**************************************")
+                
         return generated_states_full, Problem_state
     
-    
-    def check_action_Train(self, S, check_pt_path, param):    
+    def check_action_AGV_rollout(self, S, check_pt_path, param):
         tf.reset_default_graph()
-        S_norm = Train_norm_state(S)
+        _, S_norm = AGV_norm_state(S)
         Problem_state = []
         reach_states = []
         generated_states = []
@@ -362,31 +363,290 @@ class DeepQNetwork():
             # iterate to the next state to test
             S = reach_states[0]
             S_full = reach_states_full[0]
+            if S not in generated_states: # if S not tested
+                if self.look_ahead_step == 2:
+                    pattern_value, pattern_length = self.Q_value_eval(S, param, "AGV")
+                    _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
+                elif self.look_ahead_step == 3:
+                    [pattern_value, pattern_index] = self.rollout_test(S_norm, S, param, "AGV")
+                else:
+                    pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+                    pattern_index = np.argmax(pattern_value)
+                
+                if pattern_index == None:
+                    isDone_test = 1
+                    all_S_ = []
+                else:
+                    [S_, all_S_, _, isDone_test, _, _, _] = AGV_StepFun(S, pattern_index, param, self.n_actions)
+                if isDone_test == 1:
+                    Problem_state.append(S)
+                
+                for all_s_ in all_S_: # iterate all next generated states  
+                    if all_s_ not in reach_states: # if the newly generated state never appears before
+                        reach_states.append(all_s_)
+                        reach_states_full.append([all_s_, S])
+                        
+                generated_states.append(S)  #collect the verified traversed states
+                generated_states_full.append(S_full)
+            # remove S since it is traversed
+            reach_states.remove(reach_states[0])
+            reach_states_full.remove(reach_states_full[0])
+            
+            if len(generated_states)%100 == 0:
+                print("verified states:", len(generated_states))
+                print("to-test states:", len(reach_states))
+                print("problem states:", len(Problem_state))
+                print("**************************************")
+                
+        return generated_states_full, Problem_state
+    
+    """
+    
+    """
+    def check_action_Train(self, S, check_pt_path, param):    
+        tf.reset_default_graph()
+        S_norm, _ = Train_norm_state(S)
+        Problem_state = []
+        reach_states = []
+        generated_states = []
+        # reach_states_full is a 2x list, the first element is the state, the second is the state
+        # from last step, which is stored in generated_states
+        reach_states_full = []
+        generated_states_full = []
+        
+        reach_states.append(S)
+        S_full = [S, S]
+        reach_states_full.append(S_full)
+        
+        meta_path = check_pt_path + '.meta'
+        saver_test = tf.train.import_meta_graph(meta_path)
+        saver_test.restore(self.sess, check_pt_path)
+        while(len(reach_states) != 0):
+            # iterate to the next state to test
+            S = reach_states[0]
+            #S_full = reach_states_full[0]
             # if S not in generated_states: # if S not tested
             # if S not tested, but only care about the sub list, train_out number not considered
             sub_S = S[0:-3] + [S[-1]] # remove train_out number
             if not any(sub_S == sub_s[0:-3] + [sub_s[-1]] for sub_s in generated_states):
-                S_norm = Train_norm_state(S)
-                S_norm = np.array(S_norm)
-                S_norm = S_norm[np.newaxis, :] # if error, try add np.array(S)
-                pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
-                pattern_index = np.argmax(pattern_value)
-
-                [S_, all_S_, _, isDone_test, _, _, _] = Train_StepFun(S, pattern_index, param)
+                _, S_norm = Train_norm_state(S)
+                # if look_ahead_step  > 1, iterate all pattern index, evalute the Q(s_t+1, a_t+1),
+                # and the Q(s_t, a_t) is decided by R_t + Q(s_t+1, a_t+1)
+                if self.look_ahead_step == 2:
+                    pattern_value, pattern_length = self.Q_value_eval(S, param, "Train")
+                    _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
+                elif self.look_ahead_step == 3:
+                    [pattern_value, pattern_index] = self.rollout_test(S_norm, S, param, "Train")
+                else:
+                    pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+                    pattern_index = np.argmax(pattern_value)
+                
+                if pattern_index == None:
+                    isDone_test = 1
+                    all_S_ = []
+                else:
+                    [S_, all_S_, _, isDone_test, _, _, _, _] = Train_StepFun(S, pattern_index, param, 0)
                 if isDone_test == 1:
-                    Problem_state.append(S_full)
+                    Problem_state.append(S)
                 for all_s_ in all_S_: # iterate all next generated states  
-                    # TODO: we only care about elements which characterize the train states, the -2 and -3 element are discarded
+                    # we only care about elements which characterize the train states, the -2 and -3 element are discarded
                     sub_s_ = all_s_[0:-3] + [all_s_[-1]]
                     # if the newly generated state never appears before (only check the sublist, without -2 and -3 element)
                     if not any(sub_s_ == sub_s[0:-3] + [sub_s[-1]] for sub_s in reach_states):
                         reach_states.append(all_s_)
-                        reach_states_full.append([all_s_, S])
+                        #reach_states_full.append([all_s_, S])
                     # else:
                     #     print('redundant ones!')
                         
                 generated_states.append(S)  #collect the verified traversed states
                 generated_states_full.append(S_full)
+            # remove S since it is traversed
+            reach_states.remove(reach_states[0])
+            #reach_states_full.remove(reach_states_full[0])
+            
+            if len(generated_states)%10 == 0:
+                print("verified states:", len(generated_states))
+                print("to-test states:", len(reach_states))
+                print("problem states:", len(Problem_state))
+                print("**************************************")
+            
+        return generated_states_full, Problem_state
+    
+    
+    """
+    perform rollout based on given state
+    """
+    def rollout_test(self, S_norm, S, param, case_name):
+        # use Q evaluation network to get guided indices of action selection
+        # top N actions to evaluate in rollout
+        pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+        sorted_indices = np.argsort(-pattern_value)
+        top_N_indices = sorted_indices[0][: self.RO_nodes]
+        pattern_value = np.zeros(self.n_actions)
+        pattern_count = np.zeros(self.n_actions)
+        RO_nodes_num = self.RO_nodes
+        # perform rollout, run monte-carlo traces for RO_traces times, depth is RO_depth.
+        for i in range(self.RO_traces):
+            if len(top_N_indices) > 0:
+                try:
+                    act_idx_ori = top_N_indices[np.mod(i, RO_nodes_num)]
+                    act_idx = act_idx_ori
+                    pattern_count[act_idx_ori] += 1
+                    Q_eval_ro = 0
+                    skip_outer_loop = False  # Flag to control the outer loop
+                except Exception as e:
+                    print("An error occurred in the main function:", e)
+            else:
+                # when top_N_indices is [], means all top nodes are blocking
+                break
+            for _ in range(self.RO_depth):
+                if case_name == "AGV":
+                    [RO_S_, _, R_t, isDone_test, _, _, _] = AGV_StepFun(S, act_idx, param, self.n_actions)
+                elif case_name == "Train":
+                    [RO_S_, _, R_t, isDone_test, _, _, _, _] = Train_StepFun(S, act_idx, param, 0)
+                # if identified a blocking state, remove it from the candidiate list and assign a negative V value
+                if isDone_test: # TODO: confirm which way is better to handle a MC trace blocking
+                    # either 1) directly remove the nodes,
+                    # or     2) assign a negative value to the MC trace
+                    rollout_method = 1 # 1 for assign negative val, 2 for cut the path
+                    if rollout_method == 1:
+                        pattern_value[act_idx_ori] += -100
+                    else:
+                        pattern_value[act_idx_ori] = -np.inf
+                        top_N_indices = np.delete(top_N_indices, np.where(top_N_indices == act_idx_ori))
+                        RO_nodes_num -= 1
+                    skip_outer_loop = True  # Set the flag to True
+                    break
+                Q_eval_ro += R_t
+                if case_name == "AGV":
+                    _, RO_S_norm_ = AGV_norm_state(RO_S_)
+                elif case_name == "Train":
+                    _, RO_S_norm_ = Train_norm_state(RO_S_)
+                pattern_value_ = self.sess.run(self.q_eval, feed_dict = {self.S: RO_S_norm_})
+                act_idx = np.argmax(pattern_value_)
+            if skip_outer_loop:
+                continue  # Skip to the next iteration of the outer loop                        
+            Q_eval_ro += np.max(pattern_value_)
+            pattern_value[act_idx_ori] += Q_eval_ro
+        pattern_value[top_N_indices] = pattern_value[top_N_indices]/pattern_count[top_N_indices]
+        # select pattern_index based on pattern_value
+        if len(top_N_indices) > 0:
+            _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm)
+        else:
+            pattern_index = None
+            
+        return pattern_value, pattern_index
+    
+    
+    """
+    check R_t + Q(s_t+1, a_t+1)
+    """
+    def Q_value_eval(self, S, param, case_name):
+        pattern_value = np.zeros(self.n_actions)
+        pattern_length = np.zeros(self.n_actions)
+        for pattern_ind in range(self.n_actions):
+            if case_name == "AGV":
+                [_, all_S_, R_t, isDone_test, _, _, _] = AGV_StepFun(S, pattern_ind, param, self.n_actions)
+            elif case_name == "Train":
+                [_, all_S_, R_t, isDone_test, _, _, _, _] = Train_StepFun(S, pattern_ind, param, 0)
+            else:
+                print("Error: case_name unexpected, double check the case name!\n")
+                sys.exit("Exiting due to unexpected condition")
+            if isDone_test:
+                pattern_value[pattern_ind] = -1e5 # assign a big negative number, so that avoid blocking
+                pattern_length[pattern_ind] = 0
+            else:
+                # evaluate the expected Q of S_t+1
+                if case_name == "AGV":
+                    S_norm_vec, _ = AGV_norm_state(all_S_)
+                elif case_name == "Train":
+                    S_norm_vec, _ = Train_norm_state(all_S_)
+                Q_s1 = np.max(self.sess.run(self.q_eval, feed_dict = {self.S: S_norm_vec}), 1)
+                Q_s1_exp = sum(Q_s1)/len(Q_s1) # mean but not max, since it has possiblity of stepping into any states
+                # the expected value of Q is two step look ahead
+                pattern_value[pattern_ind] = R_t + Q_s1_exp
+                pattern_length[pattern_ind] = len(Q_s1)
+        return pattern_value, pattern_length
+    
+    
+    
+    def pattern_index_select(self, pattern_value, S_norm, pattern_length = None):
+        # select pattern_index based on pattern_value
+        max_value = np.max(pattern_value)
+        max_value_indices = np.where(pattern_value == max_value)[0]
+        # if there are multiple indexs with the same value, use the NN to decide one
+        if len(max_value_indices) > 1:
+            pattern_value_NN = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+            pattern_index_NN = np.argmax(pattern_value_NN)
+            if any(max_indices_temp == pattern_index_NN for max_indices_temp in max_value_indices):
+                pattern_index = pattern_index_NN
+            else:
+                if pattern_length is None:
+                    pattern_index = random.choice(max_value_indices) # TODO: check if better solution
+                else:
+                    max_len = np.max(pattern_length)
+                    max_len_indices = np.where(pattern_length == max_len)[0]
+                    if len(max_len_indices) == 1:
+                        pattern_index = max_len_indices # select the pattern index which gives maximal permissive
+                    else:
+                        pattern_index = random.choice(max_value_indices) # TODO: check if better solution
+        elif len(max_value_indices) == 0:
+            print("Error: !\n")
+            sys.exit("Exiting due to unexpected condition")
+        else:
+            pattern_index = max_value_indices[0]
+        return max_value, max_value_indices, pattern_index
+    
+    def check_previous_state(self, file_path, plant_param, prob_state_set):
+        tf.reset_default_graph()
+        S = 15*[0]
+        S_norm, _ = Train_norm_state(S)
+        Problem_state = []
+        reach_states = []
+        generated_states = []
+        # reach_states_full is a 2x list, the first element is the state, the second is the state
+        # from last step, which is stored in generated_states
+        reach_states_full = []
+        matching_state = []
+        
+        reach_states.append(S)
+        S_full = [S, S, -1]
+        reach_states_full.append(S_full)
+        
+        meta_path = file_path + '.meta'
+        saver_test = tf.train.import_meta_graph(meta_path)
+        saver_test.restore(self.sess, file_path)
+        while(len(reach_states) != 0):
+            # iterate to the next state to test
+            S = reach_states[0]
+            S_full = reach_states_full[0]
+            # if S not in generated_states: # if S not tested
+            # if S not tested, but only care about the sub list, train_out number not considered
+            sub_S = S[0:-3] + [S[-1]] # remove train_out number
+            if not any(sub_S == sub_s[0:-3] + [sub_s[-1]] for sub_s in generated_states):
+                _, S_norm = Train_norm_state(S)
+                pattern_value = self.sess.run(self.q_eval, feed_dict = {self.S: S_norm})
+                pattern_index = np.argmax(pattern_value)
+
+                [S_, all_S_, _, isDone_test, _, _, _, _] = Train_StepFun(S, pattern_index, plant_param, 0)
+                if isDone_test == 1:
+                    Problem_state.append(S_full)
+                # if tranversed s_ appears in prob_state_set, add it 
+                for s_ in all_S_:
+                    if s_ in prob_state_set:
+                        matching_state.append([s_, pattern_index, S_full])
+                    
+                for all_s_ in all_S_: # iterate all next generated states  
+                    # we only care about elements which characterize the train states, the -2 and -3 element are discarded
+                    sub_s_ = all_s_[0:-3] + [all_s_[-1]]
+                    # if the newly generated state never appears before (only check the sublist, without -2 and -3 element)
+                    if not any(sub_s_ == sub_s[0:-3] + [sub_s[-1]] for sub_s in reach_states):
+                        reach_states.append(all_s_)
+                        reach_states_full.append([all_s_, S, pattern_index])
+                    # else:
+                    #     print('redundant ones!')
+                        
+                generated_states.append(S)  #collect the verified traversed states
             # remove S since it is traversed
             reach_states.remove(reach_states[0])
             reach_states_full.remove(reach_states_full[0])
@@ -397,7 +657,7 @@ class DeepQNetwork():
                 print("problem_state:", len(Problem_state))
                 print("**************************************")
             
-        return generated_states_full, Problem_state
+        return matching_state, Problem_state, len(generated_states)
     
     
     def check_Pro_states(self, S,check_pt_path):

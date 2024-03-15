@@ -21,10 +21,16 @@ MEMORY_SIZE = np.exp2(13).astype(int)
 BATCH_SIZE = np.exp2(11).astype(int)
 NUM_EPISODE = 10000
 # initial state
-# INIT_obs = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 3, 0, 0, 205], [0, 1, 0, 3, 2, 1, 231], 
-#             [0, 0, 0, 3, 3, 0, 149], [1, 0, 2, 0, 2, 1, 101], [0, 0, 2, 0, 3, 0, 113]]
 INIT_obs = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 3, 0, 0, 205], [0, 0, 0, 3, 3, 0, 149], [0, 0, 2, 0, 3, 0, 113]]
 INIT_OBS = [0, 0, 0, 0, 0, 0, 0]
+
+MAX_EPI_STEP = 200
+RECORD_VAL = 200
+STEP = 1
+RO_NODES = 4
+RO_TRACES = 25
+RO_DEPTH = 4
+random.seed(5) # 50
 
 # build network
 tf.reset_default_graph()
@@ -40,7 +46,8 @@ RL = DeepQNetwork(NUM_ACTION,
                   epsilon_init = 0.10, # from epsilon_increment = 1e-5 to 1e-4 
                   output_graph = False,
                   max_num_nextS = 26,
-                  l1_node = 128)
+                  l1_node = 128,
+                  look_ahead_step = STEP)
 
 saver = tf.compat.v1.train.Saver(max_to_keep=None)
 cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\AGV'
@@ -60,9 +67,9 @@ Train = 0
 if Train:
     for num_episode in range(NUM_EPISODE):
         
-        S = INIT_obs[random.randint(0, len(INIT_obs)-1)]
+        S = INIT_OBS # INIT_obs[random.randint(0, len(INIT_obs)-1)]
         init_S = S
-        S_norm = AGV_norm_state(S)
+        S_norm, _ = AGV_norm_state(S)
         episode_reward = 0
         episode_step = 0
         epi_good_event = 0
@@ -74,9 +81,9 @@ if Train:
             A = RL.choose_action(S_norm)
             # take action and observe
             [S_, all_S_, R, isDone, IfAppear32, stop_ind, selected_action] = \
-                AGV_StepFun(S, A, plant_param)
-            S_norm_ = AGV_norm_state(S_)
-            all_S_norm_ = AGV_norm_state(all_S_)
+                AGV_StepFun(S, A, plant_param, NUM_ACTION)
+            S_norm_, _ = AGV_norm_state(S_)
+            all_S_norm_, _ = AGV_norm_state(all_S_)
             
             # store transition
             RL.store_exp(S_norm, A, R, all_S_norm_)
@@ -89,12 +96,12 @@ if Train:
             epi_good_event += IfAppear32
             S = S_
             S_norm = S_norm_
-            if isDone or episode_step > 200:
+            if isDone or episode_step > MAX_EPI_STEP:
                 if stop_ind == 1:
                     stop_reason = 'pattern is impossible'
                 elif stop_ind == 2:
                     stop_reason = 'bad event in a pattern'
-                elif episode_step > 200:
+                elif episode_step > MAX_EPI_STEP:
                     stop_reason = 'reach 200 steps'
                 else:
                     stop_reason = 'next state is empty'
@@ -117,7 +124,7 @@ if Train:
                 episode_step_history.append(episode_step)
                 
                 # save checkpoint model, if a good model is received
-                if episode_reward > 200:
+                if episode_reward > RECORD_VAL:
                     save_path = cwd +'\\' + str(num_episode) + '_reward' + str(episode_reward) + 'step' + str(episode_step) + '.ckpt'
                     saver.save(RL.sess, save_path)
                 break
@@ -133,21 +140,11 @@ if Train:
 
 else:
     # %% for single checkpoint test
-    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-19\\8521_reward253.42000000000033step201.ckpt" # fill in the target ckpt
+    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\\disable_approach\\2024-03-13\\AGV\\9309_reward200.27272727272754step201.ckpt"
+    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-19\\8521_reward253.42000000000033step201.ckpt" # fill in the target ckpt
+    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-20\\9598_reward216.56666666666646step201.ckpt"  # 9990_reward210.81666666666632step201.ckpt
+    
     tf.reset_default_graph()    
     S = [0, 0, 0, 0, 0, 0, 0]
-    [generated_states_full, Problem_state] = RL.check_action(S, file_path, plant_param, 'AGV')
-    
-    # %% for training folder testing
-    check_pt_path = "" # fill in the target ckpt folder
-    for check_pt_file in os.listdir(check_pt_path):
-        if check_pt_file.endswith('.index'):
-            # get the check point file full path
-            file_path = os.path.join(check_pt_path, check_pt_file[:-6])
-            tf.reset_default_graph()    
-            S = [0, 0, 0, 0, 0, 0, 0]
-            
-            [generated_states_full, Problem_state] = RL.check_action(S, file_path, plant_param)
-            if len(Problem_state) == 0:
-                print('No blocking states!\n')
+    [generated_states_full, Problem_state] = RL.check_action_AGV_rollout(S, file_path, plant_param)
             
