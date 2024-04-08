@@ -26,10 +26,11 @@ INIT_OBS = [0, 0, 0, 0, 0, 0, 0]
 
 MAX_EPI_STEP = 200
 RECORD_VAL = 200
-STEP = 1
-RO_NODES = 4
-RO_TRACES = 25
-RO_DEPTH = 4
+STEP = 3
+RO_NODES = 5
+RO_TRACES = 10
+RO_DEPTH = 1
+RO_gamma = 0.98
 random.seed(5) # 50
 
 # build network
@@ -47,7 +48,11 @@ RL = DeepQNetwork(NUM_ACTION,
                   output_graph = False,
                   max_num_nextS = 26,
                   l1_node = 128,
-                  look_ahead_step = STEP)
+                  look_ahead_step = STEP,
+                  RO_nodes = RO_NODES,
+                  RO_traces = RO_TRACES,
+                  RO_depth = RO_DEPTH,
+                  RO_gamma = RO_gamma)
 
 saver = tf.compat.v1.train.Saver(max_to_keep=None)
 cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\AGV'
@@ -140,11 +145,12 @@ if Train:
 
 else:
     # %% for single checkpoint test
-    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\\disable_approach\\2024-03-13\\AGV\\9309_reward200.27272727272754step201.ckpt"
+    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\\disable_approach\\2024-03-13\\AGV\\9309_reward200.27272727272754step201.ckpt"
     # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-19\\8521_reward253.42000000000033step201.ckpt" # fill in the target ckpt
-    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-20\\9598_reward216.56666666666646step201.ckpt"  # 9990_reward210.81666666666632step201.ckpt
+    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-20\\9598_reward216.56666666666646step201.ckpt"  # 9990_reward210.81666666666632step201.ckpt
     
     tf.reset_default_graph()    
     S = [0, 0, 0, 0, 0, 0, 0]
+    # [generated_states_full, Problem_state] = RL.check_action_AGV(S, file_path, plant_param)
     [generated_states_full, Problem_state] = RL.check_action_AGV_rollout(S, file_path, plant_param)
             

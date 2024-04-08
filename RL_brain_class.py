@@ -39,7 +39,8 @@ class DeepQNetwork():
                  look_ahead_step = 3,
                  RO_nodes = 5,
                  RO_traces = 50,
-                 RO_depth = 3):
+                 RO_depth = 3,
+                 RO_gamma = 0.95):
         
         # assign initial values
         self.n_actions = n_actions
@@ -99,9 +100,10 @@ class DeepQNetwork():
         
         # two steps look-ahead for the value forcast
         self.look_ahead_step = look_ahead_step
-        self.RO_nodes = 5
-        self.RO_traces = 50
-        self.RO_depth = 4
+        self.RO_nodes = RO_nodes
+        self.RO_traces = RO_traces
+        self.RO_depth = RO_depth
+        self.RO_gamma = RO_gamma
         
     # build networks: evaluation network and q_target network
     def _build_network(self):
@@ -343,7 +345,6 @@ class DeepQNetwork():
     
     def check_action_AGV_rollout(self, S, check_pt_path, param):
         tf.reset_default_graph()
-        _, S_norm = AGV_norm_state(S)
         Problem_state = []
         reach_states = []
         generated_states = []
@@ -364,6 +365,7 @@ class DeepQNetwork():
             S = reach_states[0]
             S_full = reach_states_full[0]
             if S not in generated_states: # if S not tested
+                _, S_norm = AGV_norm_state(S)
                 if self.look_ahead_step == 2:
                     pattern_value, pattern_length = self.Q_value_eval(S, param, "AGV")
                     _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
@@ -499,7 +501,7 @@ class DeepQNetwork():
             else:
                 # when top_N_indices is [], means all top nodes are blocking
                 break
-            for _ in range(self.RO_depth):
+            for RO_i in range(self.RO_depth):
                 if case_name == "AGV":
                     [RO_S_, _, R_t, isDone_test, _, _, _] = AGV_StepFun(S, act_idx, param, self.n_actions)
                 elif case_name == "Train":
@@ -510,28 +512,33 @@ class DeepQNetwork():
                     # or     2) assign a negative value to the MC trace
                     rollout_method = 1 # 1 for assign negative val, 2 for cut the path
                     if rollout_method == 1:
-                        pattern_value[act_idx_ori] += -100
+                        pattern_value[act_idx_ori] += -100*(self.RO_gamma**RO_i)
                     else:
                         pattern_value[act_idx_ori] = -np.inf
                         top_N_indices = np.delete(top_N_indices, np.where(top_N_indices == act_idx_ori))
                         RO_nodes_num -= 1
                     skip_outer_loop = True  # Set the flag to True
                     break
-                Q_eval_ro += R_t
+                Q_eval_ro += (self.RO_gamma**RO_i)*R_t
                 if case_name == "AGV":
                     _, RO_S_norm_ = AGV_norm_state(RO_S_)
                 elif case_name == "Train":
                     _, RO_S_norm_ = Train_norm_state(RO_S_)
-                pattern_value_ = self.sess.run(self.q_eval, feed_dict = {self.S: RO_S_norm_})
-                act_idx = np.argmax(pattern_value_)
+                
+                if RO_i + 1 == self.RO_depth:
+                    pattern_value_ = self.sess.run(self.q_eval, feed_dict = {self.S: RO_S_norm_})
+                else:
+                    act_idx = random.randint(0,10)
             if skip_outer_loop:
                 continue  # Skip to the next iteration of the outer loop                        
-            Q_eval_ro += np.max(pattern_value_)
+            Q_eval_ro += (self.RO_gamma**self.RO_depth)*np.max(pattern_value_)
             pattern_value[act_idx_ori] += Q_eval_ro
         pattern_value[top_N_indices] = pattern_value[top_N_indices]/pattern_count[top_N_indices]
         # select pattern_index based on pattern_value
         if len(top_N_indices) > 0:
-            _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm)
+            _, pattern_length = self.Q_value_eval(S, param, "AGV")
+            _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
+            # _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm)
         else:
             pattern_index = None
             
@@ -584,10 +591,10 @@ class DeepQNetwork():
                 if pattern_length is None:
                     pattern_index = random.choice(max_value_indices) # TODO: check if better solution
                 else:
-                    max_len = np.max(pattern_length)
-                    max_len_indices = np.where(pattern_length == max_len)[0]
+                    max_len = np.max(pattern_length[max_value_indices])
+                    max_len_indices = np.where(pattern_length[max_value_indices] == max_len)[0]
                     if len(max_len_indices) == 1:
-                        pattern_index = max_len_indices # select the pattern index which gives maximal permissive
+                        pattern_index = max_value_indices[max_len_indices][0] # select the pattern index which gives maximal permissive
                     else:
                         pattern_index = random.choice(max_value_indices) # TODO: check if better solution
         elif len(max_value_indices) == 0:
@@ -596,6 +603,8 @@ class DeepQNetwork():
         else:
             pattern_index = max_value_indices[0]
         return max_value, max_value_indices, pattern_index
+    
+    
     
     def check_previous_state(self, file_path, plant_param, prob_state_set):
         tf.reset_default_graph()
