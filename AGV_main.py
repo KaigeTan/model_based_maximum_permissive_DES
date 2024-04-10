@@ -27,10 +27,10 @@ INIT_OBS = [0, 0, 0, 0, 0, 0, 0]
 MAX_EPI_STEP = 200
 RECORD_VAL = 200
 STEP = 3
-RO_NODES = 5
-RO_TRACES = 10
-RO_DEPTH = 1
-RO_gamma = 0.98
+RO_NODES = 2
+RO_TRACES = 4
+RO_DEPTH = 2
+RO_gamma = 0.7
 random.seed(5) # 50
 
 # build network
