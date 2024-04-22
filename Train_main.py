@@ -23,10 +23,13 @@ INIT_obs = Train_init_state()
 MAX_EPI_STEP = 1000
 RETRAIN = 0
 RECORD_VAL = 1000
+# DQN has 14 deadlocks
+# onestep lookahead has 7 deadlocks
+# rollout has xxx deadlocks
 STEP = 3
-RO_NODES = 4
-RO_TRACES = 100
-RO_DEPTH = 4
+RO_NODES = 3
+RO_TRACES = 9
+RO_DEPTH = 2
 random.seed(50)
 
 # build network

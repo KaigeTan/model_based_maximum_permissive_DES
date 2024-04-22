@@ -28,9 +28,9 @@ MAX_EPI_STEP = 200
 RECORD_VAL = 200
 STEP = 3
 RO_NODES = 2
-RO_TRACES = 4
+RO_TRACES = RO_NODES*2
 RO_DEPTH = 2
-RO_gamma = 0.7
+RO_gamma = 0.9
 random.seed(5) # 50
 
 # build network

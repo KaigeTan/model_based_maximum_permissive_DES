@@ -528,7 +528,9 @@ class DeepQNetwork():
                 if RO_i + 1 == self.RO_depth:
                     pattern_value_ = self.sess.run(self.q_eval, feed_dict = {self.S: RO_S_norm_})
                 else:
-                    act_idx = random.randint(0,10)
+                    # act_idx = random.randint(0,10)
+                    # rollout for policy improvement, try with using DQN policy but not ramdomized
+                    act_idx = np.argmax(self.sess.run(self.q_eval, feed_dict = {self.S: RO_S_norm_}))
             if skip_outer_loop:
                 continue  # Skip to the next iteration of the outer loop                        
             Q_eval_ro += (self.RO_gamma**self.RO_depth)*np.max(pattern_value_)
@@ -536,7 +538,10 @@ class DeepQNetwork():
         pattern_value[top_N_indices] = pattern_value[top_N_indices]/pattern_count[top_N_indices]
         # select pattern_index based on pattern_value
         if len(top_N_indices) > 0:
-            _, pattern_length = self.Q_value_eval(S, param, "AGV")
+            if case_name == "AGV":
+                _, pattern_length = self.Q_value_eval(S, param, "AGV")
+            elif case_name == "Train":
+                _, pattern_length = self.Q_value_eval(S, param, "Train")
             _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm, pattern_length)
             # _, _, pattern_index = self.pattern_index_select(pattern_value, S_norm)
         else:
