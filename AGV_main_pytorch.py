@@ -3,76 +3,68 @@ import numpy as np
 from MystepFun import AGV_StepFun
 import time
 from param_class import AGV_param
-from util import AGV_norm_state
+from util import AGV_norm_state, plot_cost, plot_reward, plot_epiEvent
 import random
-from RL_brain_class_tf import DeepQNetwork
-import tensorflow as tf
+from RL_class import DeepQNetwork
+from rollout_class import Rollout
 import os
 from datetime import datetime
+import torch
+import matplotlib.pyplot as plt
 
 # %% Load models
 plant_param = AGV_param()
 
-# %% hyperparameters defination
-
+# %% hyperparameters definition
 NUM_ACTION = 11 
 NUM_OBS = 7
 MEMORY_SIZE = np.exp2(13).astype(int)
 BATCH_SIZE = np.exp2(11).astype(int)
-NUM_EPISODE = 10000
+NUM_EPISODE = 12000
 # initial state
 INIT_obs = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 3, 0, 0, 205], [0, 0, 0, 3, 3, 0, 149], [0, 0, 2, 0, 3, 0, 113]]
 INIT_OBS = [0, 0, 0, 0, 0, 0, 0]
 
 MAX_EPI_STEP = 200
 RECORD_VAL = 200
-STEP = 1
-RO_NODES = 2
-RO_TRACES = RO_NODES*2
+STEP = 3
+RO_NODES = 5
+RO_TRACES = RO_NODES
 RO_DEPTH = 2
-RO_gamma = 0.9
+RO_GAMMA = 0.7
 random.seed(5) # 50
-
-# build network
-tf.reset_default_graph()
-RL = DeepQNetwork(NUM_ACTION, 
-                  NUM_OBS,
-                  learning_rate = 1e-3,
-                  reward_decay = 0.98,
-                  e_greedy = 0.95,
-                  replace_target_iteration = 100,
-                  memory_size = MEMORY_SIZE,
-                  batch_size = BATCH_SIZE,
-                  epsilon_increment = 5e-5, #Next step: increase the value of epsilon_increment
-                  epsilon_init = 0.10, # from epsilon_increment = 1e-5 to 1e-4 
-                  output_graph = False,
-                  max_num_nextS = 26,
-                  l1_node = 128,
-                  look_ahead_step = STEP,
-                  RO_nodes = RO_NODES,
-                  RO_traces = RO_TRACES,
-                  RO_depth = RO_DEPTH,
-                  RO_gamma = RO_gamma)
-
-saver = tf.compat.v1.train.Saver(max_to_keep=None)
-cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\AGV'
-if not os.path.exists(cwd):
-    os.makedirs(cwd)
-
-total_step = 0
-reward_history = []
-good_event_history = []
-episode_step_history = [0]
-max_epi_reward = -30
-
 # train or not
 Train = 0
 
 # %% train
 if Train:
+    cwd = os.getcwd() + '\\' + datetime.today().strftime('%Y-%m-%d') + '\\AGV_torch'
+    if not os.path.exists(cwd):
+        os.makedirs(cwd)
+    
+    total_step = 0
+    reward_history = []
+    good_event_history = []
+    episode_step_history = [0]
+    max_epi_reward = -30
+
+    # build network
+    RL = DeepQNetwork(NUM_ACTION,
+                      NUM_OBS,
+                      learning_rate = 1e-3,
+                      reward_decay = 0.98,
+                      e_greedy = 0.95,
+                      replace_target_iteration = 100,
+                      memory_size = MEMORY_SIZE,
+                      batch_size = BATCH_SIZE,
+                      epsilon_increment = 5e-5, #Next step: increase the value of epsilon_increment
+                      epsilon_init = 0.10, # from epsilon_increment = 1e-5 to 1e-4
+                      max_num_nextS = 10,
+                      l1_node = 128,
+                      l2_node = 128)
+
     for num_episode in range(NUM_EPISODE):
-        
-        S = INIT_OBS # INIT_obs[random.randint(0, len(INIT_obs)-1)]
+        S = INIT_obs[random.randint(0, len(INIT_obs)-1)] # INIT_OBS
         init_S = S
         S_norm, _ = AGV_norm_state(S)
         episode_reward = 0
@@ -119,6 +111,7 @@ if Train:
                       #'good event:', epi_good_event, '\n',
                       'epsilon value:', RL.epsilon, '\n',
                       'action list:', epi_action_list, '\n',
+                      'learning rate:',  RL.learning_rate, '\n',
                       #'maximal running step:', np.max(episode_step_history), '\n',
                       'maximal episode reward:', max_epi_reward, '\n',
                       #'total good event:', np.sum(good_event_history), '\n',
@@ -131,26 +124,40 @@ if Train:
                 # save checkpoint model, if a good model is received
                 if episode_reward > RECORD_VAL:
                     save_path = cwd +'\\' + str(num_episode) + '_reward' + str(episode_reward) + 'step' + str(episode_step) + '.ckpt'
-                    saver.save(RL.sess, save_path)
+                    torch.save(RL.eval_net.state_dict(), save_path)
                 break
             total_step += 1
             epi_action_list.append(selected_action)
     
     # %%draw cost curve
-    RL.plot_cost()
-    RL.plot_reward(reward_history, 250)
-    RL.plot_epiEvent(good_event_history)
-    save_path_reward_mat = cwd + '\\' + 'reward_his.mat'
-    sio.savemat(save_path_reward_mat, mdict={'reward': reward_history})
+    # plot_cost(RL.cost_history)
+    plot_reward(reward_history, 250)
+    plot_epiEvent(good_event_history)
 
+    save_path_reward_mat = cwd + '\\' + 'reward_his.mat'
+    save_path_epiEvent_mat = cwd + '\\' + 'event_his.mat'
+    
+    sio.savemat(save_path_reward_mat, mdict={'reward': reward_history})
+    sio.savemat(save_path_epiEvent_mat, mdict={'event': good_event_history})
+    
 else:
     # %% for single checkpoint test
-    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\\disable_approach\\2024-03-13\\AGV\\9309_reward200.27272727272754step201.ckpt"
-    # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-19\\8521_reward253.42000000000033step201.ckpt" # fill in the target ckpt
-    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-20\\9598_reward216.56666666666646step201.ckpt"  # 9990_reward210.81666666666632step201.ckpt
-    
-    tf.reset_default_graph()    
+    # file_path = os.getcwd() + "\\2024-04-22\\AGV_torch\\8660_reward210.27272727272768step201.ckpt"
+    # file_path = os.getcwd() + "\\2024-04-29\\AGV_torch\\9617_reward206.27272727272765step201.ckpt"
+    file_path = os.getcwd() + "\\2024-05-06\\AGV_torch\\11959_reward207.4393939393944step201.ckpt"
+
     S = [0, 0, 0, 0, 0, 0, 0]
-    # [generated_states_full, Problem_state] = RL.check_action_AGV(S, file_path, plant_param)
-    [generated_states_full, Problem_state] = RL.check_action_AGV_rollout(S, file_path, plant_param)
-            
+
+    Rollout_test = Rollout(NUM_ACTION,
+                           NUM_OBS,
+                           file_path,
+                           plant_param = plant_param,
+                           case_name = "AGV",
+                           look_ahead_step = STEP,
+                           RO_nodes = RO_NODES,
+                           RO_traces = RO_TRACES,
+                           RO_depth = RO_DEPTH,
+                           RO_gamma = RO_GAMMA)
+    [generated_states_full, Problem_state] = Rollout_test.check_action_AGV_rollout(S)
+    print('Tested states:', len(generated_states_full), ', Problem states:', len(Problem_state))
+    print('The problem states are: ', Problem_state)

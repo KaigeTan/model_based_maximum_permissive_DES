@@ -5,6 +5,10 @@ Created on Wed Jun  8 12:52:44 2022
 @author: KaigeT
 """
 import numpy as np
+import matplotlib.pyplot as plt
+#  solve the conflict
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 
 # %% normalize AGV states
@@ -123,3 +127,29 @@ def AGV_Permit(obs, param):
     
     return(Enable_P_S,Enable_P)
 
+
+# %% plot functions
+def plot_cost(cost_history):
+    plt.figure()
+    plt.plot(np.arange(len(cost_history)), cost_history)
+    plt.ylabel('Cost')
+    plt.xlabel('Training Steps')
+    plt.show()
+    plt.close()
+    
+def plot_reward(reward_his, moving_avg_len):
+    plt.figure()
+    avg_list = np.convolve(reward_his, np.ones(moving_avg_len), 'valid')/moving_avg_len
+    plt.plot(np.arange(len(avg_list)), avg_list)
+    plt.ylabel('Episode reward')
+    plt.xlabel('Episode number')
+    plt.show()
+    plt.close()
+
+def plot_epiEvent(good_event_history):
+    plt.figure()
+    plt.plot(np.arange(len(good_event_history)), good_event_history)
+    plt.ylabel('Number of good events')
+    plt.xlabel('Episode number')
+    plt.show()
+    plt.close()
