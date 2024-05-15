@@ -26,7 +26,12 @@ INIT_OBS = [0, 0, 0, 0, 0, 0, 0]
 
 MAX_EPI_STEP = 200
 RECORD_VAL = 200
+
+# STEP == 1, basic DQN online check mode, state number: 4295, problem state number: 1
+# STEP == 2, one step look ahead mode, state number: 3291, problem state number: 0
+# STEP == 3, rollout mode, state number: 4293, problem state number: 0
 STEP = 3
+
 RO_NODES = 2
 RO_TRACES = RO_NODES*2
 RO_DEPTH = 2
@@ -147,10 +152,11 @@ else:
     # %% for single checkpoint test
     # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\\disable_approach\\2024-03-13\\AGV\\9309_reward200.27272727272754step201.ckpt"
     # file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-19\\8521_reward253.42000000000033step201.ckpt" # fill in the target ckpt
-    file_path = "C:\\Users\\kaiget\\OneDrive - KTH\\work\\MB_DQN_Junjun\\AGV_dis\\2023-12-20\\9598_reward216.56666666666646step201.ckpt"  # 9990_reward210.81666666666632step201.ckpt
+    file_path = os.path.dirname(__file__) + "\\data\\AGV\\agents\\9598_reward216.56666666666646step201.ckpt"
     
     tf.reset_default_graph()    
     S = [0, 0, 0, 0, 0, 0, 0]
     # [generated_states_full, Problem_state] = RL.check_action_AGV(S, file_path, plant_param)
     [generated_states_full, Problem_state] = RL.check_action_AGV_rollout(S, file_path, plant_param)
-            
+    print(f"checked state number: {len(generated_states_full)}, problem state number: {len(Problem_state)}")
+    print(f"Problem states are: {Problem_state}")
